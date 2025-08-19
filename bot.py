@@ -7,11 +7,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 import requests
 
 # ========================
-# CONFIG
+# CONFIG (your real keys)
 # ========================
-TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"   # replace with your bot token
-VAPI_API_KEY   = "YOUR_VAPI_API_KEY"         # replace with your Vapi API key
-RENDER_URL     = "https://your-render-app.onrender.com"  # replace with your Render app url
+TELEGRAM_TOKEN = "8394102086:AAHnV5Fg8DUS4rz2rzrXD3zVHuBIQ3ri4II"
+VAPI_API_KEY   = "ab83d1e7-ddf9-4f08-b4e8-bab6f91c42c0"
+RENDER_URL     = "https://my-telegram-bot-ivas.onrender.com"
 
 # ========================
 # FLASK APP
@@ -35,6 +35,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     phone_number = context.args[0]
+    chat_id = update.message.chat_id  # so we know who to reply back to
     
     await update.message.reply_text(f"📞 Calling {phone_number}...")
 
@@ -49,6 +50,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "firstMessage": "Hi! I just need to ask your age."
             },
             "phoneNumber": phone_number,
+            "metadata": { "telegram_chat_id": chat_id },  # 👈 pass user’s chat_id
             "webhook": f"{RENDER_URL}/vapi-webhook"
         }
     )
@@ -69,12 +71,13 @@ def vapi_webhook():
     data = request.json
     logging.info(f"📩 Incoming Vapi webhook: {data}")
 
-    if data.get("transcript"):
-        text = data["transcript"]
-        # Send transcript to Telegram chat (use your own chat_id if needed)
+    chat_id = data.get("metadata", {}).get("telegram_chat_id")
+    transcript = data.get("transcript")
+
+    if chat_id and transcript:
         telegram_app.bot.send_message(
-            chat_id=data.get("metadata", {}).get("chat_id", "<your_chat_id_here>"),
-            text=f"📝 Call result: {text}"
+            chat_id=chat_id,
+            text=f"📝 Call result: {transcript}"
         )
 
     return {"ok": True}
