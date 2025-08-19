@@ -4,7 +4,7 @@ import requests
 
 # --- Your Credentials ---
 TOKEN = "8394102086:AAHnV5Fg8DUS4rz2rzrXD3zVHuBIQ3ri4II"   # Telegram bot token
-VAPI_API_KEY = "b83d1e7-ddf9-4f08-b4e8-bab6f91c42c0"               # Get from Vapi dashboard
+VAPI_API_KEY = "0b044dfe-65ec-473e-8d51-e15801474aba"               # Get from Vapi dashboard
 RENDER_URL = "https://my-telegram-bot-ivas.onrender.com"  # Your Render app URL
 
 # --- Setup ---
