@@ -36,8 +36,8 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     phone_number = context.args[0]
-    chat_id = update.message.chat_id  # so we know who to reply back to
-    
+    chat_id = update.effective_chat.id  # ✅ fixed
+
     await update.message.reply_text(f"📞 Calling {phone_number}...")
 
     # Trigger Vapi call
@@ -51,7 +51,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "firstMessage": "Hi! I just need to ask your age."
             },
             "phoneNumber": phone_number,
-            "metadata": { "telegram_chat_id": chat_id },
+            "metadata": {"telegram_chat_id": chat_id},
             "webhook": f"{RENDER_URL}/vapi-webhook"
         }
     )
@@ -86,10 +86,10 @@ def vapi_webhook():
     transcript = data.get("transcript")
 
     if chat_id and transcript:
-        telegram_app.bot.send_message(
+        asyncio.run(telegram_app.bot.send_message(  # ✅ fixed (async)
             chat_id=chat_id,
             text=f"📝 Call result: {transcript}"
-        )
+        ))
 
     return {"ok": True}
 
@@ -97,6 +97,9 @@ def vapi_webhook():
 # START FLASK ONLY
 # ========================
 if __name__ == "__main__":
-    # Set Telegram webhook
-    telegram_app.bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
+    # ✅ async webhook setup
+    async def set_webhook():
+        await telegram_app.bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
+
+    asyncio.run(set_webhook())
     app.run(host="0.0.0.0", port=5000)
