@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import requests
+import asyncio
 
 # ========================
 # CONFIG (your real keys)
@@ -50,7 +51,7 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "firstMessage": "Hi! I just need to ask your age."
             },
             "phoneNumber": phone_number,
-            "metadata": { "telegram_chat_id": chat_id },  # 👈 pass user’s chat_id
+            "metadata": { "telegram_chat_id": chat_id },
             "webhook": f"{RENDER_URL}/vapi-webhook"
         }
     )
@@ -62,6 +63,16 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(CommandHandler("call", call_command))
+
+# ========================
+# TELEGRAM WEBHOOK ENDPOINT
+# ========================
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def telegram_webhook():
+    """Handle incoming updates from Telegram"""
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    asyncio.run(telegram_app.process_update(update))
+    return {"ok": True}
 
 # ========================
 # VAPI WEBHOOK ENDPOINT
@@ -83,16 +94,9 @@ def vapi_webhook():
     return {"ok": True}
 
 # ========================
-# START FLASK + TELEGRAM
+# START FLASK ONLY
 # ========================
 if __name__ == "__main__":
-    import threading
-
-    # Run Telegram bot in a thread
-    def run_telegram():
-        telegram_app.run_polling()
-
-    threading.Thread(target=run_telegram, daemon=True).start()
-
-    # Run Flask app
+    # Set Telegram webhook
+    telegram_app.bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
     app.run(host="0.0.0.0", port=5000)
