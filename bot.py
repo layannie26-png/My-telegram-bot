@@ -4,8 +4,9 @@ import requests
 from flask import Flask, request
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import asyncio
 
-# --- Config (use your keys directly here, but best is env variables on Render) ---
+# --- Config ---
 TELEGRAM_TOKEN = "8394102086:AAHnV5Fg8DUS4rz2rzrXD3zVHuBIQ3ri4II"
 VAPI_API_KEY = "ab83d1e7-ddf9-4f08-b4e8-bab6f91c42c0"
 RENDER_URL = "https://my-telegram-bot-ivas.onrender.com"
@@ -16,15 +17,13 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Telegram Handlers ---
+# --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Send /call <phone_number> to start a Vapi call and ask their age."
-    )
+    await update.message.reply_text("Send /call <phone_number> to start a Vapi call and ask their age.")
 
 async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
-        await update.message.reply_text("⚠️ Please provide a phone number.\nExample: /call +14155551234")
+        await update.message.reply_text("⚠️ Provide a phone number.\nExample: /call +14155551234")
         return
 
     phone_number = context.args[0]
@@ -32,17 +31,11 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📞 Starting call to {phone_number}...")
 
-    headers = {
-        "Authorization": f"Bearer {VAPI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
+    headers = {"Authorization": f"Bearer {VAPI_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "assistantId": "assistant_default",  # replace with your assistantId from Vapi
+        "assistantId": "assistant_default",
         "phoneNumber": phone_number,
-        "metadata": {
-            "telegram_chat_id": chat_id
-        },
+        "metadata": {"telegram_chat_id": chat_id},
         "webhook": f"{RENDER_URL}/vapi-webhook"
     }
 
@@ -52,7 +45,19 @@ async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"❌ Failed to start call: {res.text}")
 
-# --- Flask route: Vapi Webhook ---
+# --- PTB Application ---
+application = Application.builder().token(TELEGRAM_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("call", call_command))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
+
+# --- Flask routes ---
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    asyncio.run(application.process_update(update))
+    return "ok", 200
+
 @app.route("/vapi-webhook", methods=["POST"])
 def vapi_webhook():
     data = request.json
@@ -67,31 +72,16 @@ def vapi_webhook():
 
     return {"status": "ok"}
 
-# --- Flask route: Telegram Webhook ---
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    app.application.update_queue.put_nowait(update)  # pass update to PTB v20
-    return "ok", 200
-
 @app.route("/")
 def home():
     return "🤖 Bot is running!", 200
 
-# --- Create PTB Application ---
-def create_application():
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+# --- Startup webhook registration ---
+async def set_webhook():
+    await bot.set_webhook(f"{RENDER_URL}/{TELEGRAM_TOKEN}")
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("call", call_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
-
-    return application
-
-# --- Attach PTB Application to Flask ---
-app.application = create_application()
-
-# --- Main ---
 if __name__ == "__main__":
+    # Register Telegram webhook
+    asyncio.get_event_loop().run_until_complete(set_webhook())
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
