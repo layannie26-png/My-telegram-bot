@@ -1,87 +1,95 @@
 import os
 import logging
-import requests
 from flask import Flask, request
-from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
-import asyncio
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-# --- Config ---
-TELEGRAM_TOKEN = "8394102086:AAHnV5Fg8DUS4rz2rzrXD3zVHuBIQ3ri4II"
-VAPI_API_KEY = "ab83d1e7-ddf9-4f08-b4e8-bab6f91c42c0"
-RENDER_URL = "https://my-telegram-bot-ivas.onrender.com"
+import requests
 
-bot = Bot(token=TELEGRAM_TOKEN)
+# ========================
+# CONFIG
+# ========================
+TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"   # replace with your bot token
+VAPI_API_KEY   = "YOUR_VAPI_API_KEY"         # replace with your Vapi API key
+RENDER_URL     = "https://your-render-app.onrender.com"  # replace with your Render app url
+
+# ========================
+# FLASK APP
+# ========================
 app = Flask(__name__)
-
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# --- Handlers ---
+# ========================
+# TELEGRAM BOT APP
+# ========================
+telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
+
+# Start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send /call <phone_number> to start a Vapi call and ask their age.")
+    await update.message.reply_text("👋 Hello! Use /call +1234567890 to make a call.")
 
+# Call command
 async def call_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
-        await update.message.reply_text("⚠️ Provide a phone number.\nExample: /call +14155551234")
+        await update.message.reply_text("⚠️ Please provide a phone number.\nExample: /call +14155551234")
         return
-
+    
     phone_number = context.args[0]
-    chat_id = update.message.chat_id
+    
+    await update.message.reply_text(f"📞 Calling {phone_number}...")
 
-    await update.message.reply_text(f"📞 Starting call to {phone_number}...")
+    # Trigger Vapi call
+    response = requests.post(
+        "https://api.vapi.ai/call",
+        headers={"Authorization": f"Bearer {VAPI_API_KEY}"},
+        json={
+            "assistant": {
+                "model": "gpt-4o-mini",
+                "voice": "alloy",
+                "firstMessage": "Hi! I just need to ask your age."
+            },
+            "phoneNumber": phone_number,
+            "webhook": f"{RENDER_URL}/vapi-webhook"
+        }
+    )
 
-    headers = {"Authorization": f"Bearer {VAPI_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "assistantId": "assistant_default",
-        "phoneNumber": phone_number,
-        "metadata": {"telegram_chat_id": chat_id},
-        "webhook": f"{RENDER_URL}/vapi-webhook"
-    }
-
-    res = requests.post("https://api.vapi.ai/call", headers=headers, json=payload)
-    if res.status_code == 200:
-        await update.message.reply_text("✅ Call initiated. I’ll send the response here when the call ends.")
+    if response.status_code == 200:
+        await update.message.reply_text("✅ Call started!")
     else:
-        await update.message.reply_text(f"❌ Failed to start call: {res.text}")
+        await update.message.reply_text(f"❌ Call failed: {response.text}")
 
-# --- PTB Application ---
-application = Application.builder().token(TELEGRAM_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("call", call_command))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, start))
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CommandHandler("call", call_command))
 
-# --- Flask routes ---
-@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    asyncio.run(application.process_update(update))
-    return "ok", 200
-
+# ========================
+# VAPI WEBHOOK ENDPOINT
+# ========================
 @app.route("/vapi-webhook", methods=["POST"])
 def vapi_webhook():
     data = request.json
-    logger.info(f"📩 Vapi webhook: {data}")
+    logging.info(f"📩 Incoming Vapi webhook: {data}")
 
-    metadata = data.get("metadata", {})
-    chat_id = metadata.get("telegram_chat_id")
-    transcript = data.get("transcript", "")
+    if data.get("transcript"):
+        text = data["transcript"]
+        # Send transcript to Telegram chat (use your own chat_id if needed)
+        telegram_app.bot.send_message(
+            chat_id=data.get("metadata", {}).get("chat_id", "<your_chat_id_here>"),
+            text=f"📝 Call result: {text}"
+        )
 
-    if chat_id and transcript:
-        bot.send_message(chat_id=chat_id, text=f"🗣 Call finished. Transcript:\n\n{transcript}")
+    return {"ok": True}
 
-    return {"status": "ok"}
-
-@app.route("/")
-def home():
-    return "🤖 Bot is running!", 200
-
-# --- Startup webhook registration ---
-async def set_webhook():
-    await bot.set_webhook(f"{RENDER_URL}/{TELEGRAM_TOKEN}")
-
+# ========================
+# START FLASK + TELEGRAM
+# ========================
 if __name__ == "__main__":
-    # Register Telegram webhook
-    asyncio.get_event_loop().run_until_complete(set_webhook())
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    import threading
+
+    # Run Telegram bot in a thread
+    def run_telegram():
+        telegram_app.run_polling()
+
+    threading.Thread(target=run_telegram, daemon=True).start()
+
+    # Run Flask app
+    app.run(host="0.0.0.0", port=5000)
