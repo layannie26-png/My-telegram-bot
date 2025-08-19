@@ -75,6 +75,9 @@ async def telegram_webhook():
     await telegram_app.process_update(update)
     return {"ok": True}
 
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ Bot is running!"
 # ========================
 # VAPI WEBHOOK ENDPOINT
 # ========================
